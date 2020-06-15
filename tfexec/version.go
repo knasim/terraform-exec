@@ -10,6 +10,13 @@ import (
 	"github.com/hashicorp/go-version"
 )
 
+// Version returns structured output from the `terraform version` command including both the Terraform CLI version
+// and any initialized provider versions.
+func (tf *Terraform) Version(ctx context.Context) (tfVersion *version.Version, providerVersions map[string]*version.Version, err error) {
+	// TODO: support re-invocation of this?
+	return tf.execVersion, tf.provVersions, nil
+}
+
 func (tf *Terraform) version(ctx context.Context) (*version.Version, map[string]*version.Version, error) {
 	versionCmd := tf.buildTerraformCmd(ctx, "version")
 	var errBuf strings.Builder
@@ -23,12 +30,12 @@ func (tf *Terraform) version(ctx context.Context) (*version.Version, map[string]
 		return nil, nil, fmt.Errorf("unable to run version command: %w, %s", err, errBuf.String())
 	}
 
-	v, pv, err := parseVersionOutput(outBuf.String())
+	tfVersion, providerVersions, err := parseVersionOutput(outBuf.String())
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to parse version: %w", err)
 	}
 
-	return v, pv, nil
+	return tfVersion, providerVersions, nil
 }
 
 var (
