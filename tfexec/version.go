@@ -1,0 +1,71 @@
+package tfexec
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/hashicorp/go-version"
+)
+
+func (tf *Terraform) version(ctx context.Context) (*version.Version, map[string]*version.Version, error) {
+	versionCmd := tf.buildTerraformCmd(ctx, "version")
+	var errBuf strings.Builder
+	var outBuf bytes.Buffer
+	versionCmd.Stderr = &errBuf
+	versionCmd.Stdout = &outBuf
+
+	err := versionCmd.Run()
+	if err != nil {
+		fmt.Println(errBuf.String())
+		return nil, nil, fmt.Errorf("unable to run version command: %w, %s", err, errBuf.String())
+	}
+
+	v, pv, err := parseVersionOutput(outBuf.String())
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to parse version: %w", err)
+	}
+
+	return v, pv, nil
+}
+
+var (
+	simpleVersionRe = `v?(?P<version>[0-9]+(?:\.[0-9]+)*(?:-[A-Za-z0-9\.]+)?)`
+
+	versionOutputRe         = regexp.MustCompile(`^Terraform ` + simpleVersionRe)
+	providerVersionOutputRe = regexp.MustCompile(`(\n\+ provider[\. ](?P<name>\S+) ` + simpleVersionRe + `)`)
+)
+
+// TODO: maybe add JSON output to the version command to simplify all of this?
+func parseVersionOutput(stdout string) (*version.Version, map[string]*version.Version, error) {
+	stdout = strings.TrimSpace(stdout)
+
+	submatches := versionOutputRe.FindStringSubmatch(stdout)
+	if len(submatches) != 2 {
+		return nil, nil, fmt.Errorf("unexpected number of version matches %d for %s", len(submatches), stdout)
+	}
+	v, err := version.NewVersion(submatches[1])
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to parse version %q: %w", submatches[1], err)
+	}
+
+	allSubmatches := providerVersionOutputRe.FindAllStringSubmatch(stdout, -1)
+	provV := map[string]*version.Version{}
+
+	for _, submatches := range allSubmatches {
+		if len(submatches) != 4 {
+			return nil, nil, fmt.Errorf("unexpected number of providerion version matches %d for %s", len(submatches), stdout)
+		}
+
+		v, err := version.NewVersion(submatches[3])
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to parse provider version %q: %w", submatches[3], err)
+		}
+
+		provV[submatches[2]] = v
+	}
+
+	return v, provV, err
+}

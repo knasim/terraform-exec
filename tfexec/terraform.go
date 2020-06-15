@@ -10,15 +10,18 @@ import (
 	"os"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
 type Terraform struct {
-	execPath    string
-	workingDir  string
-	execVersion string
-	env         []string
-	logger      *log.Logger
+	execPath   string
+	workingDir string
+	env        []string
+	logger     *log.Logger
+
+	execVersion  *version.Version
+	provVersions map[string]*version.Version
 }
 
 // NewTerraform returns a Terraform struct with default values for all fields.
@@ -48,12 +51,13 @@ func NewTerraform(ctx context.Context, workingDir string, execPath string) (*Ter
 		logger:     log.New(ioutil.Discard, "", 0),
 	}
 
-	execVersion, err := tf.version()
+	execVersion, provVersions, err := tf.version(ctx)
 	if err != nil {
 		return nil, &ErrNoSuitableBinary{err: fmt.Errorf("error running 'terraform version': %s", err)}
 	}
 
 	tf.execVersion = execVersion
+	tf.provVersions = provVersions
 
 	return &tf, nil
 }
@@ -76,22 +80,6 @@ func (tf *Terraform) SetEnv(env map[string]string) {
 
 func (tf *Terraform) SetLogger(logger *log.Logger) {
 	tf.logger = logger
-}
-
-func (tf *Terraform) version() (string, error) {
-	versionCmd := tf.buildTerraformCmd(context.Background(), "version")
-	var errBuf strings.Builder
-	var outBuf bytes.Buffer
-	versionCmd.Stderr = &errBuf
-	versionCmd.Stdout = &outBuf
-
-	err := versionCmd.Run()
-	if err != nil {
-		fmt.Println(errBuf.String())
-		return "", fmt.Errorf("%s, %s", err, errBuf.String())
-	}
-
-	return outBuf.String(), nil
 }
 
 type initConfig struct {
